@@ -83,6 +83,7 @@ static struct snd_soc_dai_link mxs_sgtl5000_dai[] = {
 		.dai_fmt	= MXS_SGTL5000_DAI_FMT,
 		.ops		= &mxs_sgtl5000_hifi_ops,
 		.playback_only	= true,
+		.ignore_pmdown_time = 1,
 	}, {
 		.name		= "HiFi Rx",
 		.stream_name	= "HiFi Capture",
@@ -90,6 +91,7 @@ static struct snd_soc_dai_link mxs_sgtl5000_dai[] = {
 		.dai_fmt	= MXS_SGTL5000_DAI_FMT,
 		.ops		= &mxs_sgtl5000_hifi_ops,
 		.capture_only	= true,
+		.ignore_pmdown_time = 1,
 	},
 };
 
