@@ -61,11 +61,11 @@ static const struct reg_default sgtl5000_reg_defaults[] = {
 	{ SGTL5000_DAP_BASS_ENHANCE_CTRL,	0x051f },
 	{ SGTL5000_DAP_AUDIO_EQ,		0x0000 },
 	{ SGTL5000_DAP_SURROUND,		0x0040 },
-	{ SGTL5000_DAP_EQ_BASS_BAND0,		0x002f },
-	{ SGTL5000_DAP_EQ_BASS_BAND1,		0x002f },
-	{ SGTL5000_DAP_EQ_BASS_BAND2,		0x002f },
-	{ SGTL5000_DAP_EQ_BASS_BAND3,		0x002f },
-	{ SGTL5000_DAP_EQ_BASS_BAND4,		0x002f },
+	{ SGTL5000_DAP_EQ_BAND0,		0x002f },
+	{ SGTL5000_DAP_EQ_BAND1,		0x002f },
+	{ SGTL5000_DAP_EQ_BAND2,		0x002f },
+	{ SGTL5000_DAP_EQ_BAND3,		0x002f },
+	{ SGTL5000_DAP_EQ_BAND4,		0x002f },
 	{ SGTL5000_DAP_MAIN_CHAN,		0x8000 },
 	{ SGTL5000_DAP_MIX_CHAN,		0x0000 },
 	{ SGTL5000_DAP_AVC_CTRL,		0x0510 },
@@ -692,6 +692,18 @@ static const struct snd_kcontrol_new sgtl5000_snd_controls[] = {
 	SOC_SINGLE("DAP Input Swap LR", SGTL5000_CHIP_SSS_CTRL, 13, 1, 0),
 	SOC_SINGLE("DAC Input Swap LR", SGTL5000_CHIP_SSS_CTRL, 12, 1, 0),
 	SOC_SINGLE("I2S output Swap LR", SGTL5000_CHIP_SSS_CTRL, 10, 1, 0),
+
+	SOC_SINGLE("Headphone Amp Powerup", SGTL5000_CHIP_ANA_POWER, 4, 1, 0),
+	SOC_SINGLE("ADC HPF Freeze", SGTL5000_CHIP_ADCDAC_CTRL, 1, 1, 0),
+	SOC_SINGLE("ADC HPF Bypass", SGTL5000_CHIP_ADCDAC_CTRL, 0, 1, 0),
+	SOC_SINGLE("DAP Enable", SGTL5000_DAP_CTRL, 0, 1, 0),
+	SOC_SINGLE("DAP EQ Type", SGTL5000_DAP_AUDIO_EQ, 0, 3, 0),
+	SOC_SINGLE("DAP EQ Band 1", SGTL5000_DAP_EQ_BAND0, 0, 0x3f, 0),
+	SOC_SINGLE("DAP EQ Band 2", SGTL5000_DAP_EQ_BAND1, 0, 0x3f, 0),
+	SOC_SINGLE("DAP EQ Band 3", SGTL5000_DAP_EQ_BAND2, 0, 0x3f, 0),
+	SOC_SINGLE("DAP EQ Band 4", SGTL5000_DAP_EQ_BAND3, 0, 0x3f, 0),
+	SOC_SINGLE("DAP EQ Band 5", SGTL5000_DAP_EQ_BAND4, 0, 0x3f, 0),
+
 };
 
 static int test_for_adc_direct(struct snd_soc_codec *codec)
@@ -717,14 +729,15 @@ static int test_for_adc_direct(struct snd_soc_codec *codec)
 static int sgtl5000_digital_mute(struct snd_soc_dai *codec_dai, int mute)
 {
 	struct snd_soc_codec *codec = codec_dai->codec;
-	u16 adcdac_ctrl = SGTL5000_DAC_MUTE_LEFT | SGTL5000_DAC_MUTE_RIGHT;
+	u16 i2s_pwr = SGTL5000_I2S_IN_POWERUP;
 
-	if (mute) {
-		if (test_for_adc_direct(codec))
-			mute = 0;
-	}
-	snd_soc_update_bits(codec, SGTL5000_CHIP_ADCDAC_CTRL,
-			adcdac_ctrl, mute ? adcdac_ctrl : 0);
+	/*
+	* During 'digital mute' do not mute DAC
+	* because LINE_IN would be muted aswell. We want to mute
+	* only I2S block - this can be done by powering it off
+	*/
+	snd_soc_update_bits(codec, SGTL5000_CHIP_DIG_POWER,
+			i2s_pwr, mute ? 0 : i2s_pwr);
 
 	return 0;
 }
@@ -1163,11 +1176,11 @@ static bool sgtl5000_readable(struct device *dev, unsigned int reg)
 	case SGTL5000_DAP_FLT_COEF_ACCESS:
 	case SGTL5000_DAP_COEF_WR_B0_MSB:
 	case SGTL5000_DAP_COEF_WR_B0_LSB:
-	case SGTL5000_DAP_EQ_BASS_BAND0:
-	case SGTL5000_DAP_EQ_BASS_BAND1:
-	case SGTL5000_DAP_EQ_BASS_BAND2:
-	case SGTL5000_DAP_EQ_BASS_BAND3:
-	case SGTL5000_DAP_EQ_BASS_BAND4:
+	case SGTL5000_DAP_EQ_BAND0:
+	case SGTL5000_DAP_EQ_BAND1:
+	case SGTL5000_DAP_EQ_BAND2:
+	case SGTL5000_DAP_EQ_BAND3:
+	case SGTL5000_DAP_EQ_BAND4:
 	case SGTL5000_DAP_MAIN_CHAN:
 	case SGTL5000_DAP_MIX_CHAN:
 	case SGTL5000_DAP_AVC_CTRL:
@@ -1423,6 +1436,11 @@ static int sgtl5000_probe(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, SGTL5000_CHIP_MIC_CTRL,
 			SGTL5000_BIAS_VOLT_MASK,
 			sgtl5000->micbias_voltage << SGTL5000_BIAS_VOLT_SHIFT);
+
+	/* Unmute DAC after start */
+	snd_soc_update_bits(codec, SGTL5000_CHIP_ADCDAC_CTRL,
+		SGTL5000_DAC_MUTE_LEFT | SGTL5000_DAC_MUTE_RIGHT, 0);
+
 	return 0;
 
 err:
